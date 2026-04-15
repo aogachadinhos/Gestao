@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Mercadinho Pro 4.0</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#020617">
+
+<style>
+body {
+  font-family: Arial;
+  background: linear-gradient(180deg, #0f172a, #020617);
+  color: white;
+  padding: 15px;
+}
+
+.container { max-width: 600px; margin: auto; }
+
+h1 { text-align:center; }
+
+.grid {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+
+.card {
+  background:#1e293b;
+  padding:15px;
+  border-radius:16px;
+  text-align:center;
+}
+
+input, select {
+  width:100%;
+  padding:10px;
+  margin-top:8px;
+  border-radius:10px;
+  border:none;
+  background:#020617;
+  color:white;
+}
+
+button {
+  width:100%;
+  padding:12px;
+  margin-top:6px;
+  border:none;
+  border-radius:12px;
+  cursor:pointer;
+}
+
+.venda { background:#22c55e; }
+.custo { background:#ef4444; }
+.estoqueBtn { background:#facc15; color:black; }
+
+.lista { margin-top:10px; max-height:250px; overflow:auto; }
+
+.item {
+  background:#020617;
+  padding:10px;
+  border-radius:10px;
+  margin-top:6px;
+}
+
+.qtdBox { display:flex; gap:5px; margin-top:8px; }
+.qtdBox button { background:#1e293b; color:white; }
+.qtdBox input { text-align:center; }
+
+#abaEstoque {
+  display:none;
+  background:#020617;
+  padding:10px;
+  border-radius:12px;
+  margin-top:10px;
+}
+
+#loginBox input {
+  width:200px;
+  margin:5px;
+}
+</style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="loginBox" style="
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:#020617;
+display:flex;
+align-items:center;
+justify-content:center;
+flex-direction:column;
+z-index:999;">
+<h2>🔐 Acesso Restrito</h2>
+<input id="user" placeholder="Usuário">
+<input id="pass" type="password" placeholder="Senha">
+<button onclick="login()">Entrar</button>
+</div>
+
+<div class="container">
+
+<h1>🛒 Mercadinho 4.0</h1>
+
+<div class="grid">
+  <div class="card">💰 Caixa <br><span id="caixa"></span></div>
+  <div class="card">🛒 Vendas <br><span id="vendas"></span></div>
+  <div class="card">📦 Custos <br><span id="custos"></span></div>
+  <div class="card">📊 Lucro <br><span id="lucro"></span></div>
+</div>
+
+<button class="estoqueBtn" onclick="toggleEstoque()">📦 Estoque</button>
+
+<div id="abaEstoque">
+<h3>Adicionar Produto</h3>
+<input id="novoNome" placeholder="Nome">
+<input id="novoValor" type="number" placeholder="Valor unitário">
+<input id="novoQtd" type="number" placeholder="Quantidade">
+<button onclick="criarProduto()">➕ Criar Produto</button>
+
+<h3>Gerenciar Estoque</h3>
+<div id="listaEstoque"></div>
+</div>
+
+<button onclick="logout()">🚪 Sair</button>
+
+<hr>
+
+<input id="busca" placeholder="🔍 Buscar produto" oninput="atualizar()">
+
+<select id="produtos" onchange="preencherProduto()"></select>
+
+<input id="nome" placeholder="Produto">
+<input id="valor" type="number" placeholder="Valor unitário" oninput="calcularTotal()">
+
+<div class="qtdBox">
+  <button onclick="alterarQtd(-1)">➖</button>
+  <input id="quantidade" value="1">
+  <button onclick="alterarQtd(1)">➕</button>
+  <button onclick="alterarQtd(5)">+5</button>
+</div>
+
+<div>💰 Total: <span id="total"></span></div>
+
+<button class="venda" onclick="add('venda')">Venda</button>
+<button class="custo" onclick="add('custo')">Custo</button>
+
+<canvas id="grafico"></canvas>
+
+<div class="lista" id="lista"></div>
+
+</div>
+
+<script>
+let dados = JSON.parse(localStorage.getItem("dados")) || [];
+let produtos = JSON.parse(localStorage.getItem("produtos")) || {};
+
+function salvar(){
+  localStorage.setItem("dados", JSON.stringify(dados));
+  localStorage.setItem("produtos", JSON.stringify(produtos));
+}
+
+function formatar(v){
+  return v.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+}
+
+function toggleEstoque(){
+  let aba = document.getElementById("abaEstoque");
+  aba.style.display = aba.style.display === "none" ? "block" : "none";
+}
+
+function criarProduto(){
+  let nome = novoNome.value;
+  let valor = parseFloat(novoValor.value);
+  let qtd = parseInt(novoQtd.value);
+
+  if(!nome || !valor || !qtd) return alert("Preencha tudo");
+
+  produtos[nome] = { valor, estoque:qtd };
+  salvar();
+  carregarProdutos();
+  atualizarEstoque();
+}
+
+function atualizarEstoque(){
+  listaEstoque.innerHTML="";
+  for(let p in produtos){
+    listaEstoque.innerHTML += `
+      <div class="item">
+        ${p} - ${formatar(produtos[p].valor)} | Estoque: ${produtos[p].estoque}
+        ${produtos[p].estoque <= 5 ? "⚠️ Baixo!" : ""}
+        <br>
+        <button onclick="alterarEstoque('${p}',1)">➕</button>
+        <button onclick="alterarEstoque('${p}',-1)">➖</button>
+        <button onclick="removerProduto('${p}')">❌</button>
+      </div>
+    `;
+  }
+}
+
+function alterarEstoque(nome,q){
+  produtos[nome].estoque += q;
+  salvar();
+  atualizarEstoque();
+}
+
+function removerProduto(nome){
+  if(confirm("Excluir produto?")){
+    delete produtos[nome];
+    salvar();
+    carregarProdutos();
+    atualizarEstoque();
+  }
+}
+
+function preencherProduto(){
+  let p = produtos[produtosSelect.value];
+  if(p){
+    nome.value = produtosSelect.value;
+    valor.value = p.valor;
+    calcularTotal();
+  }
+}
+
+function carregarProdutos(){
+  produtosSelect.innerHTML="<option>Selecionar</option>";
+  for(let p in produtos){
+    produtosSelect.innerHTML += `<option>${p}</option>`;
+  }
+}
+
+function calcularTotal(){
+  let v = parseFloat(valor.value) || 0;
+  let q = parseInt(quantidade.value) || 0;
+  total.innerText = formatar(v*q);
+}
+
+function alterarQtd(x){
+  quantidade.value = Math.max(1,(+quantidade.value||1)+x);
+  calcularTotal();
+}
+
+function add(tipo){
+  let n=nome.value;
+  let v=parseFloat(valor.value);
+  let q=parseInt(quantidade.value);
+
+  if(!n||!v||!q) return alert("Preencha");
+
+  let totalV=v*q;
+
+  if(tipo==="venda" && produtos[n]){
+    if(produtos[n].estoque < q) return alert("Sem estoque!");
+    produtos[n].estoque -= q;
+  }
+
+  if(tipo==="custo" && produtos[n]){
+    produtos[n].estoque += q;
+  }
+
+  dados.push({nome:n,valor:totalV,valorUnitario:v,quantidade:q,tipo,data:new Date().toISOString()});
+
+  salvar();
+  atualizar();
+  atualizarEstoque();
+
+  nome.value="";
+  valor.value="";
+  quantidade.value=1;
+  calcularTotal();
+}
+
+function atualizar(){
+
+  let listaFiltrada = [...dados];
+
+  let buscaTxt = document.getElementById("busca").value.toLowerCase();
+
+  if(buscaTxt){
+    listaFiltrada = listaFiltrada.filter(i =>
+      i.nome.toLowerCase().includes(buscaTxt)
+    );
+  }
+
+  let totalCaixa=0, totalVendas=0, totalCustos=0;
+
+  listaFiltrada.forEach(i=>{
+    if(i.tipo==="venda"){
+      totalCaixa += i.valor;
+      totalVendas += i.valor;
+    } else {
+      totalCaixa -= i.valor;
+      totalCustos += i.valor;
+    }
+  });
+
+  document.getElementById("caixa").innerText = formatar(totalCaixa);
+  document.getElementById("vendas").innerText = formatar(totalVendas);
+  document.getElementById("custos").innerText = formatar(totalCustos);
+  document.getElementById("lucro").innerText = formatar(totalVendas - totalCustos);
+
+  lista.innerHTML="";
+
+  listaFiltrada.slice().reverse().forEach((i,index)=>{
+    lista.innerHTML += `
+      <div class="item">
+        ${i.nome} (${i.quantidade}x ${formatar(i.valorUnitario)})
+        <br>${i.tipo==="venda"?"+":"-"} ${formatar(i.valor)}
+        <button onclick="remover(${index})">❌</button>
+      </div>
+    `;
+  });
+
+  atualizarGrafico(listaFiltrada);
+}
+
+function remover(i){
+  if(confirm("Excluir item?")){
+    dados.splice(dados.length-1-i,1);
+    salvar();
+    atualizar();
+  }
+}
+
+let grafico;
+
+function atualizarGrafico(lista){
+  let labels=[],valores=[];
+
+  lista.forEach(i=>{
+    let d=i.data.split("T")[0];
+
+    if(!labels.includes(d)){
+      labels.push(d);
+      valores.push(0);
+    }
+
+    let idx = labels.indexOf(d);
+    valores[idx] += i.tipo==="venda"?i.valor:-i.valor;
+  });
+
+  if(grafico) grafico.destroy();
+
+  grafico=new Chart(graficoCanvas,{
+    type:"line",
+    data:{labels,datasets:[{label:"Lucro",data:valores}]}
+  });
+}
+
+let produtosSelect = document.getElementById("produtos");
+let graficoCanvas = document.getElementById("grafico");
+
+// LOGIN
+const USUARIO = "Alan";
+const SENHA = "1234";
+
+function login(){
+  if(user.value===USUARIO && pass.value===SENHA){
+    localStorage.setItem("logado","sim");
+    loginBox.style.display="none";
+  } else alert("Erro");
+}
+
+function verificarLogin(){
+  if(localStorage.getItem("logado")==="sim"){
+    loginBox.style.display="none";
+  }
+}
+
+function logout(){
+  localStorage.removeItem("logado");
+  location.reload();
+}
+
+verificarLogin();
+carregarProdutos();
+atualizar();
+atualizarEstoque();
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js");
+}
+</script>
+
+</body>
+</html>
